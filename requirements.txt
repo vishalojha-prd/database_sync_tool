@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+pymysql
+streamlit
+python-decouple
+requests
+
