@@ -38,6 +38,18 @@ st.markdown(
             z-index: 1000;
             border-bottom: 2px solid #3a235e;
         }
+         .logout-button {
+            font-size: 16px;
+            color: #ffffff;
+            background-color: #f44336;
+            border: none;
+            padding: 5px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .logout-button:hover {
+            background-color: #d32f2f;
+        }
 
         /* Custom footer */
         .footer {
@@ -66,162 +78,168 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Add Custom Header
-st.markdown(
+# Authentication function
+def authenticate_user(username, password):
     """
-    <div class="custom-header">
-        Database Sync Tool
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+    Authenticate the user by validating the username and password with the backend.
+    """
+    try:
+        response = requests.post(f"{BASE_URL}/login", json={"username": username, "password": password})
+        response.raise_for_status()  # Raise exception for HTTP errors
+        return response.json().get("authenticated", False)
+    except requests.exceptions.RequestException as e:
+        print(f"Authentication failed: {e}")
+        return False
 
-# Add Main Content Wrapper
-st.markdown('<div class="main-content">', unsafe_allow_html=True)
+# Initialize session state for authentication
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
 
-# Tab-based navigation
-tab1, tab2 = st.tabs(["Sync Tool", "Copy Tool"])
-
-# **TAB 1: Sync Tool**
-with tab1:
-    st.markdown("### Sync Tool")
-    # Fetch the list of client databases
-    @st.cache_data
-    def fetch_client_databases():
-        response = requests.get(f"{BASE_URL}/clients")
-        if response.status_code == 200:
-            return response.json().get("data", [])
-        else:
-            st.error("Failed to fetch client databases.")
-            return []
-
-    client_databases = fetch_client_databases()
-
-    # Dropdown to select a specific client database
-    client_db = st.selectbox("Select Client Database", ["All Clients"] + client_databases)
-
-    # Existing buttons to apply changes
-    col1, col2, col3 = st.columns([1, 1, 1])
-
-    with col1:
-        if st.button("Apply Changes to Selected Client"):
-            st.session_state["modal_action"] = "selected"
-            st.write('<script>showModal("selected");</script>', unsafe_allow_html=True)
-
-    with col2:
-        if st.button("Apply Changes to All Clients"):
-            st.session_state["modal_action"] = "all"
-            st.write('<script>showModal("all");</script>', unsafe_allow_html=True)
-
-    with col3:
-        if st.button("Compare Selected Client with Master"):
-            if client_db == "All Clients":
-                st.error("Please select a specific client to compare with the master database. The comparison feature is not available for 'All Clients'.")
+if not st.session_state["authenticated"]:
+    # Login form
+    st.title("Login to NestDBTool")
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+    if st.button("Login"):
+        with st.spinner("Authenticating..."):
+            if authenticate_user(username, password):
+                st.session_state["authenticated"] = True
+                st.set_query_params()  # Clear any query parameters
+                st.experimental_rerun()  # Redirect to login page
             else:
-                with st.spinner(f"Comparing {client_db} with master database..."):
-                    response = requests.get(f"{BASE_URL}/compare", params={"client_db": client_db})
-                    if response.status_code == 200:
-                        data = response.json()["data"]
-                        st.success("Comparison completed successfully.")
+                st.error("Invalid username or password.")
+else:
+    print("Logout")
+    if st.button("Logout"):
+        st.session_state["authenticated"] = False
+        st.set_query_params()  # Clear any query parameters
+        st.experimental_rerun()  # Redirect to login page
+ 
 
-                        # Display results
-                        st.write("### Missing Tables")
-                        st.write(data["missing_tables"])
-
-                        st.write("### Missing Columns")
-                        st.write(data["missing_columns"])
-
-                        st.write("### Datatype Mismatches")
-                        st.json(data["datatype_mismatches"])
-
-                        st.write("### Default Value Mismatches")
-                        st.json(data["default_value_mismatches"])
-
-                        st.write("### Missing Foreign Keys")
-                        st.json(data["missing_foreign_keys"])
-
-                        st.write("### Missing Stored Procedures")
-                        st.json(data["missing_stored_procedures"])
-                    else:
-                        error_message = response.json().get("message", "Unknown error occurred.")
-                        st.error(f"Failed to fetch comparison data. Error: {error_message}")
-
-# **TAB 2: Copy Tool**
-
-# Copy Tool Tab
-with tab2:  # Second tab for "Copy Tool"
-    st.title("Copy Data Between Tables")
-
-    # Source Database and Table Selection
-    st.header("Source Configuration")
-    source_db = st.selectbox(
-        "Select Source Database",
-        [""] + requests.get(f"{BASE_URL}/databases").json().get("data", [])
-    )
-    if source_db:
-        source_table = st.selectbox(
-            "Select Source Table",
-            [""] + requests.get(f"{BASE_URL}/tables", params={"database_name": source_db}).json().get("data", [])
-        )
-    else:
-        source_table = None
-
-    # Destination Database and Table Selection
-    st.header("Destination Configuration")
-    destination_db = st.selectbox(
-        "Select Destination Database",
-        [""] + requests.get(f"{BASE_URL}/databases").json().get("data", [])
-    )
-    if destination_db:
-        destination_table = st.selectbox(
-            "Select Destination Table",
-            [""] + requests.get(f"{BASE_URL}/tables", params={"database_name": destination_db}).json().get("data", [])
-        )
-    else:
-        destination_table = None
-
-    # Option to delete existing data
-    delete_existing = st.checkbox("Delete existing data in the destination table before copying")
-
-# Copy Button
-if st.button("Copy Data"):
-    if not (source_db and source_table and destination_db and destination_table):
-        st.error("Please select all required fields: source database, source table, destination database, and destination table.")
-    else:
-        with st.spinner("Copying data..."):
-            try:
-                # Perform the API request to copy data
-                response = requests.post(
-                    f"{BASE_URL}/copy",
-                    json={
-                        "source_db": source_db,
-                        "source_table": source_table,
-                        "destination_db": destination_db,
-                        "destination_table": destination_table,
-                        "delete_existing": bool(delete_existing),
-                    },
-                )
-                if response.status_code == 200:
-                    st.success(f"Data copied successfully from `{source_table}` in `{source_db}` to `{destination_table}` in `{destination_db}`.")
-                else:
-                    try:
-                        error_message = response.json().get("message", "Unknown error occurred.")
-                    except ValueError:
-                        error_message = "Invalid response from server."
-                    st.error(f"Failed to copy data. Error: {error_message}")
-            except requests.exceptions.RequestException as e:
-                st.error(f"An error occurred while copying data: {str(e)}")
-
-
-# End Main Content Wrapper
-st.markdown('</div>', unsafe_allow_html=True)
-
-# Add Custom Footer
-st.markdown(
-    """
-    <div class="footer">
-        © 2025 Database Sync Tool | NestBotics Automation Pvt Ltd
+    # Add custom header with logout button
+    st.markdown(
+        """
+          <div class="custom-header">
+        <span>Database Sync Tool</span>
     </div>
-    """,
-    unsafe_allow_html=True,
-)
+
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Add main content wrapper
+    st.markdown('<div class="main-content">', unsafe_allow_html=True)
+
+    # Tab-based navigation
+    tab1, tab2 = st.tabs(["Sync Tool", "Copy Tool"])
+
+    # **TAB 1: Sync Tool**
+    with tab1:
+        st.markdown("### Sync Tool")
+        @st.cache_data
+        def fetch_client_databases():
+            response = requests.get(f"{BASE_URL}/clients")
+            if response.status_code == 200:
+                return response.json().get("data", [])
+            else:
+                st.error("Failed to fetch client databases.")
+                return []
+
+        client_databases = fetch_client_databases()
+        client_db = st.selectbox("Select Client Database", ["All Clients"] + client_databases)
+
+        col1, col2, col3 = st.columns([1, 1, 1])
+        with col1:
+            if st.button("Apply Changes to Selected Client"):
+                st.session_state["modal_action"] = "selected"
+                st.write('<script>showModal("selected");</script>', unsafe_allow_html=True)
+
+        with col2:
+            if st.button("Apply Changes to All Clients"):
+                st.session_state["modal_action"] = "all"
+                st.write('<script>showModal("all");</script>', unsafe_allow_html=True)
+
+        with col3:
+            if st.button("Compare Selected Client with Master"):
+                if client_db == "All Clients":
+                    st.error("Please select a specific client to compare with the master database.")
+                else:
+                    with st.spinner(f"Comparing {client_db} with master database..."):
+                        response = requests.get(f"{BASE_URL}/compare", params={"client_db": client_db})
+                        if response.status_code == 200:
+                            data = response.json()["data"]
+                            st.success("Comparison completed successfully.")
+                            st.write("### Missing Tables")
+                            st.write(data["missing_tables"])
+                            st.write("### Missing Columns")
+                            st.write(data["missing_columns"])
+                            st.write("### Datatype Mismatches")
+                            st.json(data["datatype_mismatches"])
+                            st.write("### Missing Foreign Keys")
+                            st.json(data["missing_foreign_keys"])
+                            st.write("### Missing Stored Procedures")
+                            st.json(data["missing_stored_procedures"])
+                        else:
+                            st.error(f"Failed to fetch comparison data.")
+
+    # **TAB 2: Copy Tool**
+    with tab2:
+        st.title("Copy Data Between Tables")
+        source_db = st.selectbox(
+            "Select Source Database",
+            [""] + requests.get(f"{BASE_URL}/databases").json().get("data", [])
+        )
+        if source_db:
+            source_table = st.selectbox(
+                "Select Source Table",
+                [""] + requests.get(f"{BASE_URL}/tables", params={"database_name": source_db}).json().get("data", [])
+            )
+        else:
+            source_table = None
+
+        destination_db = st.selectbox(
+            "Select Destination Database",
+            [""] + requests.get(f"{BASE_URL}/databases").json().get("data", [])
+        )
+        if destination_db:
+            destination_table = st.selectbox(
+                "Select Destination Table",
+                [""] + requests.get(f"{BASE_URL}/tables", params={"database_name": destination_db}).json().get("data", [])
+            )
+        else:
+            destination_table = None
+
+        delete_existing = st.checkbox("Delete existing data in the destination table before copying")
+
+        if st.button("Copy Data"):
+            if not (source_db and source_table and destination_db and destination_table):
+                st.error("Please select all required fields.")
+            else:
+                with st.spinner("Copying data..."):
+                    response = requests.post(
+                        f"{BASE_URL}/copy",
+                        json={
+                            "source_db": source_db,
+                            "source_table": source_table,
+                            "destination_db": destination_db,
+                            "destination_table": destination_table,
+                            "delete_existing": bool(delete_existing),
+                        },
+                    )
+                    if response.status_code == 200:
+                        st.success(f"Data copied successfully.")
+                    else:
+                        st.error(f"Failed to copy data.")
+
+    # End main content wrapper
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # Add custom footer
+    st.markdown(
+        """
+        <div class="footer">
+            © 2025 Database Sync Tool | NestBotics Automation Pvt Ltd
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )

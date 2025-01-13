@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException,Body
 from pydantic import BaseModel
 
 # Import update_client_database if it's defined elsewhere
@@ -6,6 +6,48 @@ from db_utils import update_client_database
 from db_utils import fetch_schemas_with_prefix
 
 router = APIRouter()
+
+
+
+# Simulated database for user authentication
+users_db = {
+    "Vishal Ojha": {"username": "Vishal Ojha", "password": "vishal"}
+}
+
+# OAuth2PasswordBearer for token management (if needed)
+
+# Router initialization
+router = APIRouter()
+
+# To store logged-in sessions (for simplicity)
+logged_in_users = set()
+
+
+
+@router.post("/login")
+def login(username: str = Body(...), password: str = Body(...)):
+    """
+    Authenticate the user with username and password.
+    """
+    if username not in users_db or users_db[username]["password"] != password:
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+
+    # Add user to logged-in sessions
+    logged_in_users.add(username)
+    return {"status": "success", "message": f"Welcome, {username}!", "authenticated": True}
+
+@router.get("/logout")
+def logout(username: str = Body(...)):
+    """
+    Log the user out by removing them from the logged-in sessions.
+    """
+    if username in logged_in_users:
+        logged_in_users.remove(username)
+        return {"status": "success", "message": f"Goodbye, {username}!"}
+    else:
+        raise HTTPException(status_code=401, detail="User not logged in")
+
+
 
 class UpdateRequest(BaseModel):
     client_db: str = None
